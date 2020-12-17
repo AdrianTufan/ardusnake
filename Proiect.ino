@@ -22,12 +22,45 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT,
 #define joystickY A1
 #define SW 2
 
-#define SNAKE_MAX_LENGTH 40
+#define SNAKE_MAX_LENGTH 10000
 
-typedef struct SnakeSegment
+char grid[SCREEN_WIDTH][SCREEN_HEIGHT];
+
+typedef struct GridSegment
 {
   int x;
   int y;
+  
+  GridSegment(int x, int y)
+  {
+    this->x = x;
+    this->y = y;
+  }
+
+  GridSegment()
+  {
+    this->x = -1;
+    this->y = -1;
+  }
+}GridSegment;
+
+typedef struct SnakeSegment
+{
+  char x;
+  char y;
+  
+  SnakeSegment(char x, char y)
+  {
+    this->x = x;
+    this->y = y;
+  }
+
+  SnakeSegment()
+  {
+    this->x = -1;
+    this->y = -1;
+  }
+  
 }SnakeSegment;
 
 typedef struct Snake
@@ -35,17 +68,177 @@ typedef struct Snake
   SnakeSegment tail[SNAKE_MAX_LENGTH];
   int sLength;
   int sDirection;
+
+  void tailFollow()
+  {
+    for(int i = sLength; i >= 1; --i)
+    {
+      tail[i] = tail[i - 1];
+    }
+  }
+  
+  void moveUp()
+  {
+    tailFollow();
+    tail[0] = {tail[0].x, tail[0].y - 1};
+  }
+
+  void moveDown()
+  {
+    tailFollow();
+    tail[0] = {tail[0].x, tail[0].y + 1};
+  }
+
+  void moveLeft()
+  {
+    tailFollow();
+    tail[0] = {tail[0].x - 1, tail[0].y};
+  }
+
+  void moveRight()
+  {
+    tailFollow();
+    tail[0] = {tail[0].x + 1, tail[0].y};
+  }
+  
 }Snake;
 
 typedef struct Fruit
 {
-  int x;
-  int y;
+  char x;
+  char y;
   bool spawned;
 }Fruit;
 
+typedef struct SnakeAgent
+{
+    Snake* snake;
+    GridSegment sGoal;
+    Fruit* fruit;
+
+    SnakeAgent()
+    {
+      snake = 0;
+      sGoal = GridSegment(-1, -1);
+      fruit = 0;
+    }
+  
+    SnakeAgent(Snake* snake, Fruit* fruit)
+    {
+      this->snake = snake;
+      sGoal = GridSegment(fruit->x, fruit->y);
+      this->fruit = fruit;
+    }
+    
+    void moveTowardsGoal()
+    {
+      SnakeSegment snakeHead = snake->tail[0];
+      Serial.println(snake->sDirection);
+      Serial.print(snakeHead.x);
+      Serial.print("\t");
+      Serial.println(snakeHead.y);
+      Serial.print(sGoal.x);
+      Serial.print("\t");
+      Serial.println(sGoal.y);
+      // If snake is currently moving up
+
+      if (!fruit->spawned) return;
+      if(fruit->x == -1 && fruit->y == -1)  return;
+      
+      switch(snake->sDirection)
+      {
+        case 0:
+          if (sGoal.y < snakeHead.y)
+          {
+            // snake->sDirection = 0;
+            snake->moveUp();
+            break;
+          }
+          if(sGoal.x < snakeHead.x)
+          {
+            snake->moveLeft();
+            snake->sDirection = 2;
+            break;
+          }
+          if(sGoal.x > snakeHead.x)
+          {
+            snake->moveRight();
+            snake->sDirection = 3;
+            break;
+          }
+          break;
+        case 1:
+          if (sGoal.y > snakeHead.y)
+          {
+            // snake->sDirection = 1;
+            snake->moveDown();
+            break;
+          }
+          if(sGoal.x < snakeHead.x)
+          {
+            snake->moveLeft();
+            snake->sDirection = 2;
+            break;
+          }
+          if(sGoal.x > snakeHead.x)
+          {
+            snake->moveRight();
+            snake->sDirection = 3;
+            break;
+          }
+          break;
+        case 2:
+          if(sGoal.x < snakeHead.x)
+          {
+            // snake->sDirection = 2;
+            snake->moveLeft();
+            break;
+          }
+          if (sGoal.y > snakeHead.y)
+          {
+             snake->moveDown();
+             snake->sDirection = 1;
+             break;
+          }
+          if(sGoal.y < snakeHead.y)
+          {
+            snake->moveUp();
+            snake->sDirection = 0;
+            break;
+          }
+          break;
+        case 3:
+          if(sGoal.x > snakeHead.x)
+          {
+            // snake->sDirection = 3;
+            snake->moveRight();
+            break;
+          }
+          if (sGoal.y < snakeHead.y)
+          {
+             snake->moveUp();
+             snake->sDirection = 0;
+             break;
+          }
+          if (sGoal.y > snakeHead.y)
+          {
+            snake->moveDown();
+            snake->sDirection = 1;
+            break;
+          }
+          break;
+      }
+      snake->tail[snake->sLength] = {-1, -1};
+      return;
+    }
+}SnakeAgent;
+
+ 
+
  Snake snake;
  Fruit fruit;
+ SnakeAgent snakeAgent;
+
  
  int xValue;
  int yValue;
@@ -56,7 +249,11 @@ typedef struct Fruit
 
 void setup()
 {
+  pinMode(SW, INPUT);
+  digitalWrite(SW, HIGH);
   Serial.begin(9600);
+
+  randomSeed(analogRead(0));
 
   if(!display.begin(SSD1306_SWITCHCAPVCC))
   {
@@ -84,20 +281,29 @@ void setup()
   fruit.spawned = false;
   
   epsilon = 20;
+
+  snakeAgent.snake = &snake;
+  snakeAgent.sGoal = GridSegment(fruit.x, fruit.y);
+  snakeAgent.fruit = &fruit;
 }
 
-void draw_snake()
+
+void drawSnake()
 {
   display.display();
-  delay(10);
+
   display.clearDisplay();
 
   for(int i = 0; i < snake.sLength; ++i)
   {
     display.drawPixel(snake.tail[i].x, snake.tail[i].y, SSD1306_WHITE);
   }
+  
   display.display();
+}
 
+void moveSnake()
+{
   xValue = analogRead(joystickX) - 518;
   yValue = analogRead(joystickY) - 524;
 
@@ -119,63 +325,114 @@ void draw_snake()
   {
     snake.sDirection = 3;
   }
-
-  for(int i = snake.sLength; i >= 1; --i)
-  {
-    snake.tail[i] = snake.tail[i - 1];
-  }
     
   switch(snake.sDirection)
   {
     // Up
     case 0:
-      snake.tail[0] = {snake.tail[0].x, snake.tail[0].y - 1};
+      snake.moveUp();
       break;
         
     // Down
     case 1: 
-      snake.tail[0] = {snake.tail[0].x, snake.tail[0].y + 1};
+      snake.moveDown();
       break;
         
     // Left
     case 2:
-      snake.tail[0] = {snake.tail[0].x - 1, snake.tail[0].y};
+      snake.moveLeft();
       break;
         
     // Right
     case 3:
-      snake.tail[0] = {snake.tail[0].x + 1, snake.tail[0].y};
+      snake.moveRight();
       break;
   }
   
   snake.tail[snake.sLength] = {-1, -1};
-
-  delay(5);
 }
 
-void spawn_fruit()
+void addSnakeSegment(SnakeSegment* tail, int* sLength, int* sDirection, int amount)
 {
-  
-  if(!fruit.spawned)
+  switch(*sDirection)
   {
-    do
-    {
-      fruit.x = random() % SCREEN_WIDTH - 1;
-      fruit.y = random() & SCREEN_HEIGHT - 1;
-    }while(fruit.x == snake.tail[0].x && fruit.y == snake.tail[0].y);
+    // Up
+    case 0:
+      for(int i = 0; i < amount; ++i)
+      {
+        tail[*sLength + i] = SnakeSegment(tail[*sLength - (i + 1)].x, tail[*sLength - (i + 1)].y - 1);
+        *sLength = *sLength + 1;
+      }
+      break;
+        
+    // Down
+    case 1: 
+      for(int i = 0; i < amount; ++i)
+      {
+        tail[*sLength + i] = SnakeSegment(tail[*sLength - (i + 1)].x, tail[*sLength - (i + 1)].y + 1);
+        *sLength = *sLength + 1;
+      }
+      break;
+        
+    // Left
+    case 2:
+      for(int i = 0; i < amount; ++i)
+      {
+        tail[*sLength + i] = SnakeSegment(tail[*sLength - (i + 1)].x - 1, tail[*sLength - (i + 1)].y);
+        *sLength = *sLength + 1;
+      }
+      break;
+        
+    // Right
+    case 3:
+      for(int i = 0; i < amount; ++i)
+      {
+        tail[*sLength + i] = SnakeSegment(tail[*sLength - (i + 1)].x + 1, tail[*sLength - (i + 1)].y);
+        *sLength = *sLength + 1;
+      }
+      break;
   }
+}
+
+void drawFruit()
+{
   display.drawPixel(fruit.x, fruit.y, SSD1306_WHITE);
   display.display();
+}
 
-  if(!fruit.spawned) fruit.spawned = true;
-  
-  delay(10);
+void spawnFruit()
+{
+  if (fruit.spawned)  return;
+
+  // Generate fruit's new position
+  do
+  {
+    fruit.x = random() % SCREEN_WIDTH - 1;
+    fruit.y = random() & SCREEN_HEIGHT - 1;
+  }while(fruit.x == snake.tail[0].x && fruit.y == snake.tail[0].y);
+
+  snakeAgent.sGoal = GridSegment(fruit.x, fruit.y);
+
+  // Signal the fruit has spawned
+  fruit.spawned = true;
+}
+
+void checkFruitCollision()
+{
+  if(snake.tail[0].x == fruit.x && snake.tail[0].y == fruit.y)
+  {
+    fruit.spawned = false;
+    fruit = Fruit{-1 , -1};
+    addSnakeSegment(snake.tail, &snake.sLength, &snake.sDirection, 5);
+  }
 }
 
 void loop()
 {
-  draw_snake();
-  spawn_fruit();
-  
-  delay(10);
+  drawSnake();
+  //moveSnake();
+  snakeAgent.moveTowardsGoal();
+  spawnFruit();
+  checkFruitCollision();
+  drawFruit();
 }
